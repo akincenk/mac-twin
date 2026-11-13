@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+dist/
+*.egg-info/
+.DS_Store
+# a captured setup folder can hold personal settings; keep test runs out of git
+/my-mac/
