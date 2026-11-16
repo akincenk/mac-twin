@@ -1,5 +1,6 @@
 import plistlib
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -17,10 +18,16 @@ class FakeMac:
         self.defaults = {"com.apple.dock": {"autohide": True, "tilesize": 48}}
         self.brewfile = 'tap "homebrew/core"\nbrew "git"\ncask "firefox"\n'
         self.mas = MAS_LIST
+        self.bundle_check = (0, "")  # (exit code, stderr) for `brew bundle check`
 
-    def run(self, cmd, text=True):
+    def run(self, cmd, text=True, ok=(0,)):
         self.calls.append(cmd)
         out = ""
+        if cmd[:3] == ["brew", "bundle", "check"]:
+            code, err = self.bundle_check
+            if code not in ok:
+                raise subprocess.CalledProcessError(code, cmd, "", err)
+            return subprocess.CompletedProcess(cmd, code, "", err)
         if cmd[:3] == ["brew", "bundle", "dump"]:
             Path(cmd[cmd.index("--file") + 1]).write_text(self.brewfile)
         elif cmd[:2] == ["defaults", "export"]:
@@ -82,6 +89,45 @@ def test_apply_dry_run_changes_nothing(mac, capsys):
     assert "Xcode" not in out
     assert (mac.home / ".zshrc").read_text() == "old\n"
     assert ["mas", "install", "1111"] not in mac.calls
+
+
+BUNDLE_MISSING = (
+    "brew bundle can't satisfy your Brewfile's dependencies.\n"
+    "→ Formula hello needs to be installed or updated.\n"
+)
+
+
+def test_apply_dry_run_lists_missing_brew_packages(mac, capsys):
+    (mac.folder / "Brewfile").write_text('brew "hello"\n')
+    mac.bundle_check = (1, BUNDLE_MISSING)
+
+    assert cli.main(["apply", str(mac.folder), "--only", "brew", "--dry-run"]) == 0
+
+    out = capsys.readouterr().out
+    assert "Formula hello needs to be installed" in out
+    assert "nothing to install" not in out
+    assert ["brew", "bundle", "check", "--file", str(mac.folder / "Brewfile"), "--verbose"] in mac.calls
+    assert not any(c[:3] == ["brew", "bundle", "install"] for c in mac.calls)
+
+
+def test_apply_dry_run_brew_satisfied(mac, capsys):
+    (mac.folder / "Brewfile").write_text('brew "git"\n')
+    assert cli.main(["apply", str(mac.folder), "--only", "brew", "--dry-run"]) == 0
+    assert "brew: nothing to install" in capsys.readouterr().out
+
+
+def test_apply_dry_run_brew_failure_is_an_error(mac, capsys):
+    (mac.folder / "Brewfile").write_text('brew "git"\n')
+    mac.bundle_check = (2, "Error: something broke")
+    assert cli.main(["apply", str(mac.folder), "--only", "brew", "--dry-run"]) == 2
+    assert "something broke" in capsys.readouterr().err
+
+
+def test_run_allows_listed_exit_codes():
+    exit_1 = [sys.executable, "-c", "import sys; sys.exit(1)"]
+    assert cli.run(exit_1, ok=(0, 1)).returncode == 1
+    with pytest.raises(subprocess.CalledProcessError):
+        cli.run(exit_1)
 
 
 def test_apply_backs_up_and_writes(mac):
