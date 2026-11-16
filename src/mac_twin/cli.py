@@ -33,8 +33,12 @@ class ConfigError(Exception):
     pass
 
 
-def run(cmd: list[str], text: bool = True) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, check=True, capture_output=True, text=text)
+def run(cmd: list[str], text: bool = True, ok: tuple[int, ...] = (0,)) -> subprocess.CompletedProcess:
+    """Run without a shell; exit codes outside `ok` raise CalledProcessError."""
+    res = subprocess.run(cmd, check=False, capture_output=True, text=text)
+    if res.returncode not in ok:
+        raise subprocess.CalledProcessError(res.returncode, cmd, res.stdout, res.stderr)
+    return res
 
 
 def check_dotfile(rel: object) -> str:
@@ -151,10 +155,12 @@ def cmd_apply(folder: Path, only: set[str], dry_run: bool) -> int:
     brewfile = folder / "Brewfile"
     if "brew" in only and brewfile.is_file() and available("brew"):
         if dry_run:
-            # `brew bundle check` exits non-zero when something is missing; that is the answer, not an error.
-            res = subprocess.run(["brew", "bundle", "check", "--file", str(brewfile), "--verbose"],
-                                 check=False, capture_output=True, text=True)
-            print(res.stdout.strip() or "brew: nothing to install")
+            # `brew bundle check` exits 1 and lists what is missing on stderr; that is the answer, not an error.
+            res = run(["brew", "bundle", "check", "--file", str(brewfile), "--verbose"], ok=(0, 1))
+            if res.returncode == 0:
+                print("brew: nothing to install")
+            else:
+                print("\n".join(s for s in (res.stdout.strip(), res.stderr.strip()) if s))
         else:
             run(["brew", "bundle", "install", "--file", str(brewfile)])
             print("brew bundle install done")
