@@ -1,6 +1,7 @@
 # mac-twin
 
 [![CI](https://github.com/akincenk/mac-twin/actions/workflows/ci.yml/badge.svg)](https://github.com/akincenk/mac-twin/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/akincenk/mac-twin/badge)](https://scorecard.dev/viewer/?uri=github.com/akincenk/mac-twin)
 
 A small command line tool that saves the setup of one Mac into a plain folder you can keep in git, and applies that folder on another Mac. It shows you what would change before it changes anything.
 
