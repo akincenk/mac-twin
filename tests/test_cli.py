@@ -166,7 +166,17 @@ def test_diff_clean_returns_zero(mac):
     assert cli.main(["diff", str(mac.folder), "--only", "brew"]) == 0
 
 
-@pytest.mark.parametrize("entry", ["/etc/hosts", "../outside", ".ssh/id_ed25519", ".aws", ".netrc", ""])
+def test_dotfile_with_home_prefix(mac):
+    (mac.folder / cli.CONFIG_NAME).write_text('dotfiles = ["~/.vimrc"]\n')
+    (mac.home / ".vimrc").write_text("set number\n")
+    assert cli.main(["capture", str(mac.folder), "--only", "dotfiles"]) == 0
+    assert (mac.folder / "dotfiles/.vimrc").read_text() == "set number\n"
+
+
+@pytest.mark.parametrize("entry", [
+    "/etc/hosts", "../outside", ".ssh/id_ed25519", "~/.ssh/config", ".aws", ".netrc", "",
+    "~", "~/", "~other/.zshrc", "~/~/.vimrc",
+])
 def test_rejects_unsafe_dotfiles(mac, entry, capsys):
     (mac.folder / cli.CONFIG_NAME).write_text(f'dotfiles = ["{entry}"]\n')
     assert cli.main(["capture", str(mac.folder)]) == 2

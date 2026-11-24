@@ -44,7 +44,9 @@ def run(cmd: list[str], text: bool = True, ok: tuple[int, ...] = (0,)) -> subpro
 def check_dotfile(rel: object) -> str:
     if not isinstance(rel, str) or not rel.strip():
         raise ConfigError(f"dotfile entry must be a non-empty string: {rel!r}")
-    p = Path(rel)
+    p = Path(rel.removeprefix("~/"))
+    if not p.parts or p.parts[0].startswith("~"):
+        raise ConfigError(f"dotfile must be a path inside your home folder, like .zshrc or ~/.zshrc: {rel}")
     if p.is_absolute() or ".." in p.parts:
         raise ConfigError(f"dotfile must be a path inside your home folder: {rel}")
     norm = p.as_posix()
