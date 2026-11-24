@@ -12,6 +12,7 @@ import sys
 import tempfile
 import time
 import tomllib
+from collections.abc import Callable
 from pathlib import Path
 
 CONFIG_NAME = "mac-twin.toml"
@@ -150,31 +151,31 @@ def cmd_capture(folder: Path, only: set[str]) -> int:
     return 0
 
 
-def cmd_apply(folder: Path, only: set[str], dry_run: bool) -> int:
+def plan_apply(folder: Path, only: set[str]) -> list[tuple[str, Callable[[], object]]]:
+    """Work out what apply would change; return (description, action) pairs. Changes nothing."""
     domains, dotfiles = load_config(folder)
     home = Path.home()
-    prefix = "would " if dry_run else ""
+    steps: list[tuple[str, Callable[[], object]]] = []
     brewfile = folder / "Brewfile"
     if "brew" in only and brewfile.is_file() and available("brew"):
-        if dry_run:
-            # `brew bundle check` exits 1 and lists what is missing on stderr; that is the answer, not an error.
-            res = run(["brew", "bundle", "check", "--file", str(brewfile), "--verbose"], ok=(0, 1))
-            if res.returncode == 0:
-                print("brew: nothing to install")
-            else:
-                print("\n".join(s for s in (res.stdout.strip(), res.stderr.strip()) if s))
+        # `brew bundle check` exits 1 and lists what is missing on stderr; that is the answer, not an error.
+        res = run(["brew", "bundle", "check", "--file", str(brewfile), "--verbose"], ok=(0, 1))
+        if res.returncode == 0:
+            print("brew: nothing to install")
         else:
-            run(["brew", "bundle", "install", "--file", str(brewfile)])
-            print("brew bundle install done")
+            print("\n".join(s for s in (res.stdout.strip(), res.stderr.strip()) if s))
+            steps.append(("run brew bundle install",
+                          lambda: run(["brew", "bundle", "install", "--file", str(brewfile)])))
     if "defaults" in only:
         for d in domains:
             plist = folder / "defaults" / f"{d}.plist"
             if not plist.is_file():
                 print(f"skip: {plist} missing")
                 continue
-            if not dry_run:
-                run(["defaults", "import", d, str(plist)])
-            print(f"{prefix}import defaults {d}")
+            current = plistlib.loads(run(["defaults", "export", d, "-"], text=False).stdout)
+            if plistlib.loads(plist.read_bytes()) == current:
+                continue
+            steps.append((f"import defaults {d}", lambda d=d, plist=plist: run(["defaults", "import", d, str(plist)])))
     if "dotfiles" in only:
         backup_root = home / ".mac-twin-backup" / time.strftime("%Y%m%d-%H%M%S")
         for rel in dotfiles:
@@ -185,23 +186,47 @@ def cmd_apply(folder: Path, only: set[str], dry_run: bool) -> int:
                 continue
             if dest.is_file() and dest.read_bytes() == src.read_bytes():
                 continue
-            if not dry_run:
-                if dest.exists():
-                    backup = backup_root / rel
-                    backup.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copyfile(dest, backup)
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(src, dest)
-            print(f"{prefix}write ~/{rel}")
+            steps.append((f"write ~/{rel}", lambda rel=rel, src=src, dest=dest: write_dotfile(src, dest, backup_root / rel)))
     if "mas" in only and (folder / "mas.txt").is_file() and available("mas"):
         installed = parse_mas_list(run(["mas", "list"]).stdout)
         for app_id, name in read_mas_file(folder / "mas.txt").items():
-            if app_id in installed:
-                continue
-            if not dry_run:
-                run(["mas", "install", app_id])
-            print(f"{prefix}install {name} ({app_id})")
-    if "defaults" in only and domains and not dry_run:
+            if app_id not in installed:
+                steps.append((f"install {name} ({app_id})", lambda app_id=app_id: run(["mas", "install", app_id])))
+    return steps
+
+
+def write_dotfile(src: Path, dest: Path, backup: Path) -> None:
+    if dest.exists():
+        backup.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(dest, backup)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(src, dest)
+
+
+def cmd_apply(folder: Path, only: set[str], dry_run: bool, yes: bool) -> int:
+    steps = plan_apply(folder, only)
+    for text, _ in steps:
+        print(f"would {text}")
+    if dry_run:
+        return 0
+    if not steps:
+        print("nothing to apply")
+        return 0
+    if not yes:
+        if not sys.stdin.isatty():
+            sys.stdout.flush()  # keep the summary above the error when output is piped
+            raise ConfigError("not asking for confirmation without a terminal; pass --yes to apply")
+        try:
+            answer = input(f"apply {len(steps)} change(s)? [y/N] ")
+        except EOFError:
+            answer = ""
+        if answer.strip().lower() not in ("y", "yes"):
+            print("nothing changed")
+            return 1
+    for text, action in steps:
+        action()
+        print(text)
+    if any(text.startswith("import defaults ") for text, _ in steps):
         print("some defaults only take effect after logging out or restarting the app (e.g. killall Dock)")
     return 0
 
@@ -280,6 +305,7 @@ def main(argv: list[str] | None = None) -> int:
                            help=f"comma-separated sections: {','.join(SECTIONS)}")
         if name == "apply":
             p.add_argument("--dry-run", action="store_true", help="print what would change, change nothing")
+            p.add_argument("-y", "--yes", action="store_true", help="apply without asking for confirmation")
     args = parser.parse_args(argv)
     if args.command == "init":
         return cmd_init(args.folder)
@@ -290,7 +316,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "capture":
             return cmd_capture(args.folder, only)
         if args.command == "apply":
-            return cmd_apply(args.folder, only, args.dry_run)
+            return cmd_apply(args.folder, only, args.dry_run, args.yes)
         return cmd_diff(args.folder, only)
     except ConfigError as e:
         print(f"error: {e}", file=sys.stderr)

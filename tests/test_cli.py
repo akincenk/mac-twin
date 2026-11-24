@@ -138,12 +138,64 @@ def test_apply_backs_up_and_writes(mac):
     plist.parent.mkdir()
     plist.write_bytes(plistlib.dumps({"autohide": False}))
 
-    assert cli.main(["apply", str(mac.folder), "--only", "dotfiles,defaults"]) == 0
+    assert cli.main(["apply", str(mac.folder), "--only", "dotfiles,defaults", "--yes"]) == 0
 
     assert (mac.home / ".zshrc").read_text() == "new\n"
     backups = list((mac.home / ".mac-twin-backup").glob("*/.zshrc"))
     assert [b.read_text() for b in backups] == ["old\n"]
     assert ["defaults", "import", "com.apple.dock", str(plist)] in mac.calls
+
+
+def save_dock(mac, values):
+    plist = mac.folder / "defaults/com.apple.dock.plist"
+    plist.parent.mkdir(exist_ok=True)
+    plist.write_bytes(plistlib.dumps(values))
+    return plist
+
+
+def test_apply_skips_defaults_that_already_match(mac, capsys):
+    save_dock(mac, dict(mac.defaults["com.apple.dock"]))
+
+    assert cli.main(["apply", str(mac.folder), "--only", "defaults", "--dry-run"]) == 0
+    assert "com.apple.dock" not in capsys.readouterr().out
+
+    assert cli.main(["apply", str(mac.folder), "--only", "defaults"]) == 0
+    assert "nothing to apply" in capsys.readouterr().out
+    assert not any(c[:2] == ["defaults", "import"] for c in mac.calls)
+
+
+def stage_zshrc(mac):
+    (mac.folder / "dotfiles").mkdir()
+    (mac.folder / "dotfiles/.zshrc").write_text("new\n")
+    (mac.home / ".zshrc").write_text("old\n")
+    save_dock(mac, {"autohide": False})
+
+
+@pytest.mark.parametrize("answer, code, zshrc", [("y", 0, "new\n"), ("n", 1, "old\n"), ("", 1, "old\n")])
+def test_apply_asks_once(mac, monkeypatch, capsys, answer, code, zshrc):
+    stage_zshrc(mac)
+    prompts = []
+    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: True, raising=False)
+    monkeypatch.setattr("builtins.input", lambda msg: prompts.append(msg) or answer)
+
+    assert cli.main(["apply", str(mac.folder), "--only", "dotfiles,defaults"]) == code
+
+    assert prompts == ["apply 2 change(s)? [y/N] "]
+    out = capsys.readouterr().out
+    assert "would import defaults com.apple.dock\nwould write ~/.zshrc\n" in out
+    assert (mac.home / ".zshrc").read_text() == zshrc
+    assert any(c[:2] == ["defaults", "import"] for c in mac.calls) == (code == 0)
+
+
+def test_apply_without_terminal_needs_yes(mac, monkeypatch, capsys):
+    stage_zshrc(mac)
+    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: False, raising=False)
+
+    assert cli.main(["apply", str(mac.folder), "--only", "dotfiles,defaults"]) == 2
+
+    assert "--yes" in capsys.readouterr().err
+    assert (mac.home / ".zshrc").read_text() == "old\n"
+    assert not any(c[:2] == ["defaults", "import"] for c in mac.calls)
 
 
 def test_diff_reports_changes(mac, capsys):

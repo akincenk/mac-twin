@@ -45,9 +45,12 @@ On the other Mac:
 ```sh
 mac-twin diff ~/my-mac            # what differs; exit code 1 if anything does
 mac-twin apply ~/my-mac --dry-run # what apply would do
-mac-twin apply ~/my-mac           # do it
+mac-twin apply ~/my-mac           # show the same list, ask once, then do it
 mac-twin apply ~/my-mac --only brew,dotfiles
+mac-twin apply ~/my-mac --yes     # no question, for scripts
 ```
+
+`apply` lists only real changes: settings domains and dotfiles that already match are left alone. Without a terminal (cron, CI, a pipe) it refuses to run unless you pass `--yes`. Answering anything but `y` changes nothing and exits 1.
 
 `mac-twin.toml`:
 
@@ -55,6 +58,8 @@ mac-twin apply ~/my-mac --only brew,dotfiles
 domains = ["com.apple.dock", "com.apple.finder"]
 dotfiles = [".zshrc", ".gitconfig", ".config/git/ignore"]
 ```
+
+Dotfile paths are relative to your home folder; a leading `~/` is fine (`~/.vimrc` and `.vimrc` mean the same file).
 
 ## Safety
 
