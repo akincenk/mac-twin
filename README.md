@@ -77,7 +77,7 @@ Dotfile paths are relative to your home folder; a leading `~/` is fine (`~/.vimr
 .venv/bin/ruff check .
 ```
 
-See [ROADMAP.md](ROADMAP.md) for planned work.
+See [ROADMAP.md](ROADMAP.md) for planned work and [CONTRIBUTING.md](CONTRIBUTING.md) for how to send changes.
 
 ## License
 
