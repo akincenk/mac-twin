@@ -48,9 +48,10 @@ mac-twin apply ~/my-mac --dry-run # what apply would do
 mac-twin apply ~/my-mac           # show the same list, ask once, then do it
 mac-twin apply ~/my-mac --only brew,dotfiles
 mac-twin apply ~/my-mac --yes     # no question, for scripts
+mac-twin apply ~/my-mac --upgrade # also upgrade outdated brew packages
 ```
 
-`apply` lists only real changes: settings domains and dotfiles that already match are left alone. Without a terminal (cron, CI, a pipe) it refuses to run unless you pass `--yes`. Answering anything but `y` changes nothing and exits 1.
+`apply` lists only real changes: settings domains and dotfiles that already match are left alone. For Homebrew it installs only what is missing; packages that are installed but outdated stay as they are unless you pass `--upgrade`. Without a terminal (cron, CI, a pipe) it refuses to run unless you pass `--yes`. Answering anything but `y` changes nothing and exits 1.
 
 `mac-twin.toml`:
 
