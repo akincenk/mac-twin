@@ -4,9 +4,7 @@ Planned work after the first version. Estimates are rough. Each item has a GitHu
 
 | # | Item | Estimate |
 |---|------|----------|
-| 1 | Confirm before `apply`: print the dry-run summary, ask once, `--yes` to skip | 1.5 h |
 | 2 | `restore` command: put dotfiles back from a `~/.mac-twin-backup/<timestamp>` folder, with `--dry-run` | 2 h |
-| 3 | Route `brew bundle check` through the shared `run` helper (allowed exit codes) so the brew dry run is covered by tests | 1 h |
 | 4 | Dotfile directories: allow entries like `.config/nvim/` with an `exclude` list of glob patterns | 3 h |
 | 5 | `--link` mode: symlink dotfiles from the folder instead of copying, for people who edit them in the repo | 3 h |
 | 6 | Secret check on capture: warn (and skip unless `--force`) when a captured file has lines that look like tokens or private keys | 3 h |
@@ -20,4 +18,10 @@ Planned work after the first version. Estimates are rough. Each item has a GitHu
 | 14 | Packaging: build a wheel in CI on tags and publish a Homebrew tap formula | 2 h |
 | 15 | `status` command: one line per section with the number of differences, no details | 1.5 h |
 
-Total: about 33 hours.
+Total: about 30.5 hours.
+
+## Done
+
+- #1 Confirm before `apply` (PR #23)
+- #3 `brew bundle check` through the shared `run` helper (PR #21)
+- #24 `apply` installs missing brew packages only, `--upgrade` for the old behaviour
