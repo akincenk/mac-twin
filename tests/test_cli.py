@@ -106,8 +106,30 @@ def test_apply_dry_run_lists_missing_brew_packages(mac, capsys):
     out = capsys.readouterr().out
     assert "Formula hello needs to be installed" in out
     assert "nothing to install" not in out
-    assert ["brew", "bundle", "check", "--file", str(mac.folder / "Brewfile"), "--verbose"] in mac.calls
+    assert ["brew", "bundle", "check", "--file", str(mac.folder / "Brewfile"), "--verbose", "--no-upgrade"] in mac.calls
     assert not any(c[:3] == ["brew", "bundle", "install"] for c in mac.calls)
+
+
+def test_apply_installs_missing_brew_packages_without_upgrading(mac, capsys):
+    (mac.folder / "Brewfile").write_text('brew "hello"\n')
+    mac.bundle_check = (1, BUNDLE_MISSING)
+
+    assert cli.main(["apply", str(mac.folder), "--only", "brew", "--yes"]) == 0
+
+    assert "run brew bundle install --no-upgrade" in capsys.readouterr().out
+    assert ["brew", "bundle", "install", "--file", str(mac.folder / "Brewfile"), "--no-upgrade"] in mac.calls
+
+
+def test_apply_upgrade_checks_and_upgrades_outdated(mac, capsys):
+    (mac.folder / "Brewfile").write_text('brew "git"\n')
+    mac.bundle_check = (1, "→ Formula git needs to be installed or updated.\n")
+
+    assert cli.main(["apply", str(mac.folder), "--only", "brew", "--upgrade", "--yes"]) == 0
+
+    brewfile = str(mac.folder / "Brewfile")
+    assert "would run brew bundle install --upgrade" in capsys.readouterr().out
+    assert ["brew", "bundle", "check", "--file", brewfile, "--verbose"] in mac.calls
+    assert ["brew", "bundle", "install", "--file", brewfile, "--upgrade"] in mac.calls
 
 
 def test_apply_dry_run_brew_satisfied(mac, capsys):

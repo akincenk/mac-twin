@@ -151,21 +151,24 @@ def cmd_capture(folder: Path, only: set[str]) -> int:
     return 0
 
 
-def plan_apply(folder: Path, only: set[str]) -> list[tuple[str, Callable[[], object]]]:
+def plan_apply(folder: Path, only: set[str], upgrade: bool = False) -> list[tuple[str, Callable[[], object]]]:
     """Work out what apply would change; return (description, action) pairs. Changes nothing."""
     domains, dotfiles = load_config(folder)
     home = Path.home()
     steps: list[tuple[str, Callable[[], object]]] = []
     brewfile = folder / "Brewfile"
     if "brew" in only and brewfile.is_file() and available("brew"):
+        # Without --no-upgrade, brew bundle counts outdated packages as missing and install upgrades them all.
+        mode = "--upgrade" if upgrade else "--no-upgrade"
+        check = ["brew", "bundle", "check", "--file", str(brewfile), "--verbose"]
         # `brew bundle check` exits 1 and lists what is missing on stderr; that is the answer, not an error.
-        res = run(["brew", "bundle", "check", "--file", str(brewfile), "--verbose"], ok=(0, 1))
+        res = run(check if upgrade else check + [mode], ok=(0, 1))
         if res.returncode == 0:
-            print("brew: nothing to install")
+            print("brew: nothing to install or upgrade" if upgrade else "brew: nothing to install")
         else:
             print("\n".join(s for s in (res.stdout.strip(), res.stderr.strip()) if s))
-            steps.append(("run brew bundle install",
-                          lambda: run(["brew", "bundle", "install", "--file", str(brewfile)])))
+            install = ["brew", "bundle", "install", "--file", str(brewfile), mode]
+            steps.append((f"run brew bundle install {mode}", lambda: run(install)))
     if "defaults" in only:
         for d in domains:
             plist = folder / "defaults" / f"{d}.plist"
@@ -203,8 +206,8 @@ def write_dotfile(src: Path, dest: Path, backup: Path) -> None:
     shutil.copyfile(src, dest)
 
 
-def cmd_apply(folder: Path, only: set[str], dry_run: bool, yes: bool) -> int:
-    steps = plan_apply(folder, only)
+def cmd_apply(folder: Path, only: set[str], dry_run: bool, yes: bool, upgrade: bool = False) -> int:
+    steps = plan_apply(folder, only, upgrade)
     for text, _ in steps:
         print(f"would {text}")
     if dry_run:
@@ -306,6 +309,8 @@ def main(argv: list[str] | None = None) -> int:
         if name == "apply":
             p.add_argument("--dry-run", action="store_true", help="print what would change, change nothing")
             p.add_argument("-y", "--yes", action="store_true", help="apply without asking for confirmation")
+            p.add_argument("--upgrade", action="store_true",
+                           help="also upgrade outdated brew packages (default: install missing ones only)")
     args = parser.parse_args(argv)
     if args.command == "init":
         return cmd_init(args.folder)
@@ -316,7 +321,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "capture":
             return cmd_capture(args.folder, only)
         if args.command == "apply":
-            return cmd_apply(args.folder, only, args.dry_run, args.yes)
+            return cmd_apply(args.folder, only, args.dry_run, args.yes, args.upgrade)
         return cmd_diff(args.folder, only)
     except ConfigError as e:
         print(f"error: {e}", file=sys.stderr)
